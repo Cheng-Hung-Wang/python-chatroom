@@ -5,19 +5,38 @@ from http.cookies import SimpleCookie as cookie
 from socketserver import ThreadingMixIn
 
 import uuid
+import json
 
 from queue import Queue
 
 message = None
 
+class MessageQueue(Queue):
+    pass
+
+
 class Client(object):
-    def __init__(self, cid):
+    def __init__(self, cid, name=None):
         self.id = cid
+        self.name = name or '匿名'.encode()
+
 
 class ChatRequestHandler(BaseHTTPRequestHandler):
     sessioncookies = {}
     # cookie过期时间
     SESSION_MAX_AGE = 3600
+    # 连接列表
+    CONNECTION_LIST = []
+
+    message_queue = MessageQueue()
+
+    def find_client(self, sid):
+        if not sid:
+            return None
+        for client in self.CONNECTION_LIST:
+            if client.id == sid:
+                return client
+        return None
 
     def _write_headers(self, status_code, headers={}):
         self.send_response(status_code)
@@ -26,7 +45,16 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
             self.send_header(name, value)
         self.end_headers()
 
-    def _session_cookie(self,forcenew=False):  
+    def get_session_id(self):
+        cookiestring = "\n".join(self.headers.get_all('Cookie',failobj=[]))
+        c = cookie()  
+        c.load(cookiestring)
+
+        if 'session_id' in c:
+            return c['session_id'].value
+        return None
+
+    def _session_cookie(self, forcenew=False):  
         cookiestring = "\n".join(self.headers.get_all('Cookie',failobj=[]))
         c = cookie()  
         c.load(cookiestring)
@@ -44,7 +72,8 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
                 c[m]["expires"] = self.date_time_string(time.time() + self.SESSION_MAX_AGE)
                 self.sessioncookies[c[m].value] = time.time()
                 self.sessionidmorsel = c[m]
-                break 
+                break
+        return c['session_id'].value
 
     def do_POST(self):
         length = int(self.headers['Content-Length'])
@@ -66,11 +95,22 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
             self._write_headers(404)
 
     def do_GET(self):
-        self._session_cookie()
+        self.session_id = self._session_cookie()
+        self.client = self.find_client(self.session_id)
+        if not self.client:
+            client = Client(self.session_id)
+            self.client = client
+            self.CONNECTION_LIST.append(client)
+            print("当前人数:{}".format(len(self.CONNECTION_LIST)))
+            print(self.CONNECTION_LIST)
+            print('*'*80)
 
         path = self.path
+
         if path.startswith('/'):
             path = path[1:]
+        print(path)
+
         res = self.get_html(path)
         if res:
             headers = {}
@@ -83,69 +123,35 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
             self._write_headers(404)
 
     def perform_operation(self, oper, body):
+        session_id = self.get_session_id()
+        client = self.find_client(session_id)
+
         if oper == 'poll':
             return message.wait(body)
+
         elif oper == 'post':
-            print("{}:{} 发言".format(*self.client_address))
-            return message.post(body)
+            name = client.name if client else '匿名'.encode()
+            msg = "{}说: {}".format(name.decode(), body.decode()).encode()
+            return message.post(msg)
+
+        elif oper == 'name':
+            if client:
+                client.name = body
+            return bytes("修改成功", 'utf-8')
+
         elif oper == 'exit':
-            pass
+            if client:
+                self.CONNECTION_LIST.remove(client)
 
     def get_html(self, path):
         if path=='' or path=='index.html':
-            return '''
-            <body>
-            <style>
-            iframe {
-                width: 400px;
-                height: 600px;
-            }
-            </style>
-            <iframe src="room.html"></iframe>
-            <iframe src="room.html"></iframe>
-            <iframe src="room.html"></iframe>
-            </body>
-            '''
-        elif path=='room.html':
-            return '''
-            <body>
-            <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
-            <input id="input"/>
-            <button id="post">post</button>
-            <script>
-            $('#post').click(function(){
-                $.ajax('/post', {
-                    method: 'POST',
-                    timeout: 1000,
-                    data: $('#input').val()
-                });
-            });
+            return self.render('chat.html')
 
-            $(window).bind("beforeunload", function() { 
-                $.ajax('/exit', {
-                    method: 'POST',
-                });
-            });
-
-            var last_message = '';
-            (function poll() {
-                $.ajax('/poll', {
-                    method: 'POST',
-                    timeout: 1000*60*10, //10 minutes
-                    success: function(data){
-                        $("<p>"+data+"</p>").appendTo($(document.body));
-                        last_message = data;
-                        poll();
-                    },
-                    error: function(){
-                        setTimeout(poll, 1000);
-                    },
-                    data: last_message
-                });
-            }());
-            </script>
-            </body>
-            '''
+    def render(self, template):
+        html = ''
+        with open(template, 'r') as f:
+            html = f.read()
+        return html
 
 
 class Message(object):
@@ -157,7 +163,7 @@ class Message(object):
         self.event.clear()
 
     def wait(self, last_mess=''):
-        if message.data != last_mess and time.time()-message.time < 60:
+        if message.data != last_mess and time.time() - message.time < 60:
             # resend the previous message if it is within 1 min
             return message.data
         self.event.wait()

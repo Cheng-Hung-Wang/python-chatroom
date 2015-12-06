@@ -28,8 +28,6 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
     # 连接列表
     CONNECTION_LIST = []
 
-    message_queue = MessageQueue()
-
     def find_client(self, sid):
         if not sid:
             return None
@@ -109,7 +107,6 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
 
         if path.startswith('/'):
             path = path[1:]
-        print(path)
 
         res = self.get_html(path)
         if res:
@@ -127,7 +124,8 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
         client = self.find_client(session_id)
 
         if oper == 'poll':
-            return message.wait(body)
+            msg = message.wait(body)
+            return msg
 
         elif oper == 'post':
             name = client.name if client else '匿名'.encode()
@@ -144,13 +142,17 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
                 self.CONNECTION_LIST.remove(client)
 
     def get_html(self, path):
+        # 返回静态模版
         if path=='' or path=='index.html':
             return self.render('chat.html')
 
     def render(self, template):
         html = ''
-        with open(template, 'r') as f:
-            html = f.read()
+        try:
+            with open(template, 'r') as f:
+                html = f.read()
+        except:
+            pass
         return html
 
 

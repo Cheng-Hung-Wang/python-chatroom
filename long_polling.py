@@ -11,6 +11,8 @@ import threading
 import json
 import uuid
 
+from multiprocessing import Process, Event
+from random import randint
 
 message = None
 
@@ -32,9 +34,10 @@ class EventMap(dict):
             nonlocal path
             path = func.__name__ if path is None else path
             self[path] = func
+
             @wraps(func)
             def _event(self, *args, **kwargs):
-                return func(self, *args, **kwargs) 
+                return func(self, *args, **kwargs)
             return _event
         return _register_func
 
@@ -42,8 +45,22 @@ class EventMap(dict):
 class Client(object):
     def __init__(self, cid, name=None):
         self.id = cid
-        self.name = name or '匿名'.encode()
+        self.name = name or '匿名{}'.format(randint(0, 1000)).encode()
         self.queue = MessageQueue()
+
+    def __eq__(self, other):
+        if isinstance(other, Client):
+            return self.id == other.id
+        return False
+
+    def __ne__(self, other):
+        return (not self.__eq__(other))
+
+    def __repr__(self):
+        return "name:{} session_id:{}".format(self.name, self.id)
+
+    def __hash__(self):
+        return hash(self.__repr__())
 
 
 class ChatRequestHandler(BaseHTTPRequestHandler):
@@ -103,6 +120,9 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
                 break
         return c['session_id'].value
 
+    def handle(self):
+        super().handle()
+
     def do_POST(self):
         length = int(self.headers['Content-Length'])
         body = self.rfile.read(length)
@@ -147,33 +167,35 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
             self._write_headers(404)
 
     @event_map.register_event('post')
-    def post(v):
-        name = v.client.name if v.client else '匿名'.encode()
-        msg = "{}说: {}".format(name.decode(), v.body.decode()).encode()
+    def post(self):
+        name = self.client.name if self.client else '匿名'.encode()
+        msg = "{}说: {}".format(name.decode(), self.body.decode()).encode()
         return message.post(msg)
 
     @event_map.register_event('poll')
-    def poll(v):
-        msg = message.wait(v.body)
+    def poll(self):
+        msg = message.wait(self.body)
         return msg
 
     @event_map.register_event('name')
-    def change_name(v):
-        if v.client:
-            v.client.name = v.body
+    def change_name(self):
+        if self.client:
+            self.client.name = self.body
         return bytes("修改成功", 'utf-8')
 
     @event_map.register_event('exit')
-    def exit(v):
-        if v.client:
-            v.self.CONNECTION_LIST.remove(client)
+    def exit(self):
+        if self.client:
+            self.CONNECTION_LIST.remove(self.client)
 
     def perform_operation(self, oper, body):
         session_id = self.get_session_id()
-        client = self.find_client(session_id)
+        self.client = self.find_client(session_id)
+        self.body = body
 
         try:
-            return self.event_map[oper](DotDict(vars()))
+            return self.event_map[oper].__get__(self)()
+            # return self.event_map[oper](DotDict(vars()))
         except KeyError:
             pass
             
@@ -221,15 +243,28 @@ class ChatHTTPServer(ThreadingMixIn, HTTPServer):
     pass
 
 
+class StoppableHTTPServer(Process):
+    def __init__(self, addr, handler):
+        super().__init__()
+        self.exit = Event()
+        self.server = ChatHTTPServer(addr, handler)
+
+    def run(self):
+        while not self.exit.is_set():
+            try:
+                self.server.handle_request()
+            except:
+                self.shutdown()
+
+    def shutdown(self):
+        self.exit.set()
+
 def start_server(handler, host, port):
     global message
     message = Message()
 
-    httpd = ChatHTTPServer((host, port), handler)
-    try:
-        httpd.serve_forever()
-    finally:
-        httpd.server_close()
+    httpd = StoppableHTTPServer((host, port), handler)
+    httpd.start()
 
 
 if __name__ == '__main__':

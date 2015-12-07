@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset='utf-8' />
+    <meta charset="utf-8" />
 </head>
 <body>
 <script src="http://cdn.bootcss.com/jquery/2.1.4/jquery.min.js"></script>
 <label>输入姓名</label>
-<input id="name"/ max="5">
+<input id="name" value="匿名">
 <br>
 <input id="input"/>
 <button id="post">发言</button>
@@ -17,7 +17,7 @@ $('#name').on('blur', function(){
         method: 'POST',
         data: $(this).val().trim(),
         success: function(resp) {
-            alert(resp.toString());
+            // 修改成功
         },
         error: function(xhr, err, exp) {
             alert('修改失败');

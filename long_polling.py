@@ -1,13 +1,16 @@
-import time
-import threading
+#-*- coding:utf-8 -*-
+
+from functools import wraps
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie as cookie
 from socketserver import ThreadingMixIn
-
-import uuid
-import json
-
 from queue import Queue
+
+import time
+import threading
+import json
+import uuid
+
 
 message = None
 
@@ -15,10 +18,32 @@ class MessageQueue(Queue):
     pass
 
 
+class DotDict(dict):
+    def __getattribute__(self, name):
+        try:
+            return self[name]
+        except:
+            return None
+
+
+class EventMap(dict):
+    def register_event(self, path=None):
+        def _register_func(func):
+            nonlocal path
+            path = func.__name__ if path is None else path
+            self[path] = func
+            @wraps(func)
+            def _event(self, *args, **kwargs):
+                return func(self, *args, **kwargs) 
+            return _event
+        return _register_func
+
+
 class Client(object):
     def __init__(self, cid, name=None):
         self.id = cid
         self.name = name or '匿名'.encode()
+        self.queue = MessageQueue()
 
 
 class ChatRequestHandler(BaseHTTPRequestHandler):
@@ -27,6 +52,11 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
     SESSION_MAX_AGE = 3600
     # 连接列表
     CONNECTION_LIST = []
+    # 事件函数
+    event_map = EventMap()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def find_client(self, sid):
         if not sid:
@@ -99,9 +129,6 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
             client = Client(self.session_id)
             self.client = client
             self.CONNECTION_LIST.append(client)
-            print("当前人数:{}".format(len(self.CONNECTION_LIST)))
-            print(self.CONNECTION_LIST)
-            print('*'*80)
 
         path = self.path
 
@@ -119,28 +146,37 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
         else:
             self._write_headers(404)
 
+    @event_map.register_event('post')
+    def post(v):
+        name = v.client.name if v.client else '匿名'.encode()
+        msg = "{}说: {}".format(name.decode(), v.body.decode()).encode()
+        return message.post(msg)
+
+    @event_map.register_event('poll')
+    def poll(v):
+        msg = message.wait(v.body)
+        return msg
+
+    @event_map.register_event('name')
+    def change_name(v):
+        if v.client:
+            v.client.name = v.body
+        return bytes("修改成功", 'utf-8')
+
+    @event_map.register_event('exit')
+    def exit(v):
+        if v.client:
+            v.self.CONNECTION_LIST.remove(client)
+
     def perform_operation(self, oper, body):
         session_id = self.get_session_id()
         client = self.find_client(session_id)
 
-        if oper == 'poll':
-            msg = message.wait(body)
-            return msg
-
-        elif oper == 'post':
-            name = client.name if client else '匿名'.encode()
-            msg = "{}说: {}".format(name.decode(), body.decode()).encode()
-            return message.post(msg)
-
-        elif oper == 'name':
-            if client:
-                client.name = body
-            return bytes("修改成功", 'utf-8')
-
-        elif oper == 'exit':
-            if client:
-                self.CONNECTION_LIST.remove(client)
-
+        try:
+            return self.event_map[oper](DotDict(vars()))
+        except KeyError:
+            pass
+            
     def get_html(self, path):
         # 返回静态模版
         if path=='' or path=='index.html':

@@ -26,10 +26,17 @@ $('#name').on('blur', function(){
 });
 
 $('#post').click(function(){
-    $.ajax('/post', {
+    $.ajax({
+        url: '/post',
         method: 'POST',
         timeout: 1000,
-        data: $('#input').val()
+        data: $('#input').val(),
+        success: function() {
+            $("#input").val("");
+        },
+        error: function() {
+            alert('发送失败');
+        }
     });
 });
 

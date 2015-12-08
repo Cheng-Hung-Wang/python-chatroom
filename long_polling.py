@@ -45,8 +45,8 @@ class EventMap(dict):
 class Client(object):
     def __init__(self, cid, name=None):
         self.id = cid
-        self.name = name or '匿名{}'.format(randint(0, 1000)).encode()
-        self.queue = MessageQueue()
+        self.name = name or '匿名{}'.format(randint(0, 1000))
+        # self.queue = MessageQueue()
 
     def __eq__(self, other):
         if isinstance(other, Client):
@@ -129,7 +129,7 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
         path = self.path
         if path.startswith('/'):
             path = path[1:]
-        res = self.perform_operation(path, body)
+        res = self.perform_operation(path, body.decode())
         if res:
             headers = {}
             headers['Content-Type'] = 'text/plain'
@@ -150,12 +150,7 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
             self.client = client
             self.CONNECTION_LIST.append(client)
 
-        path = self.path
-
-        if path.startswith('/'):
-            path = path[1:]
-
-        res = self.get_html(path)
+        res = self.get_html(self.path)
         if res:
             headers = {}
             if self.sessionidmorsel is not None:
@@ -168,24 +163,26 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
 
     @event_map.register_event('post')
     def post(self):
-        name = self.client.name if self.client else '匿名'.encode()
-        msg = "{}说: {}".format(name.decode(), self.body.decode()).encode()
+        from html import escape
+        name = self.client.name if self.client else '匿名'
+        msg = "{}说: {}".format(name, escape(self.body)).encode()
         return message.post(msg)
 
     @event_map.register_event('poll')
     def poll(self):
-        msg = message.wait(self.body)
+        msg = message.wait(self.body.encode())
         return msg
 
     @event_map.register_event('name')
     def change_name(self):
         if self.client:
             self.client.name = self.body
-        return bytes("修改成功", 'utf-8')
+        return "修改成功".decode()
 
     @event_map.register_event('exit')
     def exit(self):
         if self.client:
+            self.sessioncookies.pop(self.client.id)
             self.CONNECTION_LIST.remove(self.client)
 
     def perform_operation(self, oper, body):
@@ -201,13 +198,13 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
             
     def get_html(self, path):
         # 返回静态模版
-        if path=='' or path=='index.html':
+        if path in ("/", "/chat", "/index.html"):
             return self.render('chat.html')
 
     def render(self, template):
         html = ''
         try:
-            with open(template, 'r') as f:
+            with open(template, encoding='utf-8') as f:
                 html = f.read()
         except:
             pass
@@ -216,7 +213,7 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
 
 class Message(object):
     def __init__(self):
-        self.data = ''
+        self.data = b''
         self.time = 0
         self.event = threading.Event()
         self.lock = threading.Lock()
@@ -224,7 +221,7 @@ class Message(object):
 
     def wait(self, last_mess=''):
         if message.data != last_mess and time.time() - message.time < 60:
-            # resend the previous message if it is within 1 min
+            # 重发一分钟内的消息
             return message.data
         self.event.wait()
         return message.data

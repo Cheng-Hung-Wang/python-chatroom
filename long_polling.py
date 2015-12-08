@@ -177,7 +177,7 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
     def change_name(self):
         if self.client:
             self.client.name = self.body
-        return "修改成功".decode()
+        return "修改成功".encode()
 
     @event_map.register_event('exit')
     def exit(self):
@@ -234,34 +234,31 @@ class Message(object):
             self.event.clear()
         return b'ok'
 
+class StoppableHTTPServer(HTTPServer):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stop = False
+
+    def serve_forever(self):
+        while not self.stop:
+            try:
+                self.handle_request()
+            except KeyboardInterrupt:
+                break
+
 
 ThreadingMixIn.daemon_threads = True
-class ChatHTTPServer(ThreadingMixIn, HTTPServer):
+class ChatHTTPServer(ThreadingMixIn, StoppableHTTPServer):
     pass
 
-
-class StoppableHTTPServer(Process):
-    def __init__(self, addr, handler):
-        super().__init__()
-        self.exit = Event()
-        self.server = ChatHTTPServer(addr, handler)
-
-    def run(self):
-        while not self.exit.is_set():
-            try:
-                self.server.handle_request()
-            except:
-                self.shutdown()
-
-    def shutdown(self):
-        self.exit.set()
 
 def start_server(handler, host, port):
     global message
     message = Message()
 
-    httpd = StoppableHTTPServer((host, port), handler)
-    httpd.start()
+    httpd = ChatHTTPServer((host, port), handler)
+    httpd.serve_forever()
 
 
 if __name__ == '__main__':

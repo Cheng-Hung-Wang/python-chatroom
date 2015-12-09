@@ -41,11 +41,13 @@ class EventMap(dict):
             return _event
         return _register_func
 
+def anonymous():
+    return '匿名{}'.format(randint(0, 1000))
 
 class Client(object):
     def __init__(self, cid, name=None):
         self.id = cid
-        self.name = name or '匿名{}'.format(randint(0, 1000))
+        self.name = name or anonymous()
         # self.queue = MessageQueue()
 
     def __eq__(self, other):
@@ -69,6 +71,8 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
     SESSION_MAX_AGE = 3600
     # 连接列表
     CONNECTION_LIST = []
+    # 记录用户名称的集合
+    USERS = set()
     # 事件函数
     event_map = EventMap()
 
@@ -123,6 +127,31 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
     def handle(self):
         super().handle()
 
+    # 在线人数
+    @classmethod
+    def onlines(self):
+        return len(self.CONNECTION_LIST)
+
+    def remove_name(self, name):
+        if name in self.USERS:
+            self.USERS.remove(name)
+
+    # 请求前获取用户信息
+    def get_client(func):
+        def _get(self, *args, **kwargs):
+            self.session_id = self._session_cookie()
+            self.client = self.find_client(self.session_id)
+            # print("self.session_id:{}".format(self.session_id))
+            # print("self.client:", self.client)
+            # print("self.CONNECTION_LIST:", self.CONNECTION_LIST)
+
+            if not self.client:
+                client = Client(self.session_id)
+                self.client = client
+                self.CONNECTION_LIST.append(client)
+            return func(self, *args, **kwargs)
+        return _get
+
     def do_POST(self):
         length = int(self.headers['Content-Length'])
         body = self.rfile.read(length)
@@ -132,6 +161,7 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
         res = self.perform_operation(path, body.decode())
         if res:
             headers = {}
+            # json和纯文本
             headers['Content-Type'] = 'text/plain'
             self._write_headers(200, headers)
             try:
@@ -142,14 +172,8 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
         else:
             self._write_headers(404)
 
+    @get_client
     def do_GET(self):
-        self.session_id = self._session_cookie()
-        self.client = self.find_client(self.session_id)
-        if not self.client:
-            client = Client(self.session_id)
-            self.client = client
-            self.CONNECTION_LIST.append(client)
-
         res = self.get_html(self.path)
         if res:
             headers = {}
@@ -164,25 +188,36 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
     @event_map.register_event('post')
     def post(self):
         from html import escape
-        name = self.client.name if self.client else '匿名'
-        msg = "{}说: {}".format(name, escape(self.body)).encode()
-        return message.post(msg)
+        name = self.client.name if self.client else '匿名' # 当服务器重启后，client信息会清空
+        return message.post({
+            'msg': escape(self.body), 
+            'user': name
+        })
 
     @event_map.register_event('poll')
     def poll(self):
-        msg = message.wait(self.body.encode())
+        msg = message.wait(self.body)
         return msg
 
     @event_map.register_event('name')
     def change_name(self):
+        if self.body and self.body in self.USERS:
+            return b''
+        name = anonymous()
         if self.client:
-            self.client.name = self.body
-        return "修改成功".encode()
+            name = self.body if self.body else anonymous()
+            self.remove_name(self.client.name)
+            self.client.name = name
+        self.USERS.add(name)
+        print(self.USERS)
+        return name.encode()
 
     @event_map.register_event('exit')
     def exit(self):
         if self.client:
+            # 清除用户信息
             self.sessioncookies.pop(self.client.id)
+            self.remove_name(self.client.name)
             self.CONNECTION_LIST.remove(self.client)
 
     def perform_operation(self, oper, body):
@@ -213,29 +248,42 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
 
 class Message(object):
     def __init__(self):
-        self.data = b''
+        self.data = ''
         self.time = 0
+        self.user = None
+        # 返回json
+        self.json_msg = ''
         self.event = threading.Event()
         self.lock = threading.Lock()
         self.event.clear()
+        self.max = 20
+
+    def to_json(self):
+        return json.dumps({
+            'msg': message.data,
+            'user': message.user,
+            'time': message.time,
+            'num': ChatRequestHandler.onlines(),
+        }).encode()
 
     def wait(self, last_mess=''):
         if message.data != last_mess and time.time() - message.time < 60:
             # 重发一分钟内的消息
-            return message.data
+            return self.json_msg
         self.event.wait()
-        return message.data
+        self.json_msg = self.to_json()
+        return self.json_msg
 
-    def post(self, data):
+    def post(self, info):
         with self.lock:
-            self.data = data
+            self.data = info['msg']
+            self.user = info['user']
             self.time = time.time()
             self.event.set()
             self.event.clear()
         return b'ok'
 
 class StoppableHTTPServer(HTTPServer):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.stop = False

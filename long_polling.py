@@ -11,8 +11,6 @@ import threading
 import json
 import uuid
 
-from multiprocessing import Process, Event
-from random import randint
 
 message = None
 
@@ -21,6 +19,7 @@ class MessageQueue(Queue):
 
 
 class DotDict(dict):
+    # dict[name] -> dict.name
     def __getattribute__(self, name):
         try:
             return self[name]
@@ -29,6 +28,7 @@ class DotDict(dict):
 
 
 class EventMap(dict):
+    # 事件映射表
     def register_event(self, path=None):
         def _register_func(func):
             nonlocal path
@@ -42,7 +42,9 @@ class EventMap(dict):
         return _register_func
 
 def anonymous():
+    from random import randint
     return '匿名{}'.format(randint(0, 1000))
+
 
 class Client(object):
     def __init__(self, cid, name=None):
@@ -255,7 +257,6 @@ class Message(object):
         self.event = threading.Event()
         self.lock = threading.Lock()
         self.event.clear()
-        self.max = 20
 
     def to_json(self):
         return json.dumps({
@@ -266,9 +267,9 @@ class Message(object):
         }).encode()
 
     def wait(self, last_mess=''):
-        if message.data != last_mess and time.time() - message.time < 60:
-            # 重发一分钟内的消息
-            return self.json_msg
+        # if message.data != last_mess and time.time() - message.time < 60:
+        #     # 重发一分钟内的消息
+        #     return self.json_msg
         self.event.wait()
         self.json_msg = self.to_json()
         return self.json_msg

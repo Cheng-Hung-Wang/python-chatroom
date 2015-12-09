@@ -91,7 +91,7 @@
         background-color: #f6f6f6;
         border: 1px solid #dcdcdc;
         margin-top: -1px;
-        padding: 5px;
+        padding: 3px;
     }
     
     .send-input {
@@ -153,7 +153,7 @@
     var user = '';
 
     function getName() {
-        var input_name = $("#name").val().trim();
+        var input_name = $('#name').val().trim();
         if(input_name != '' && input_name == user) {
           return null;
         }
@@ -164,17 +164,24 @@
             success: function(name) {
                 // 修改成功
                 user = name;
-                $("#name").val(name);
+                $('#name').val(name);
             },
             error: function(xhr, err, exp) {
-                alert('已有人使用该呢称');
-                $("#name").val(user);
+                alert('已有人使用该呢称...');
+                $('#name').val(user);
             }
         });
     }
 
     $(window).load(function(){
         getName();
+    });
+
+    $(document).keypress(function(e) {
+        // 回车发送 
+        if(e.which == 13 && $('#msgInput').is(':focus')) {
+            $('#post').click();
+        }
     });
 
     $('#name').on('blur', function() {
@@ -190,10 +197,10 @@
               timeout: 1000,
               data: msg,
               success: function() {
-                  $("#msgInput").val("");
+                  $('#msgInput').val("");
               },
               error: function() {
-                  alert('网络不好');
+                  alert('网络不好...QAQ');
               }
           });
         }
@@ -211,9 +218,7 @@
             timeout: 1000 * 60 * 10, //设置10分钟超时
             success: function(data) {
                 var message = JSON.parse(data);
-                var time = new Date(message.time);
-                console.log(time);
-                console.log(message);
+                // var time = new Date(message.time);
                 var pos = message.user == user ? 'right' : 'left';
 
                 $("#phone").append(
@@ -224,7 +229,7 @@
                     '</div>'
                 );
                 $('#phone').animate({
-                    scrollTop: $('#phone').height()
+                    scrollTop: $('#phone').prop('scrollHeight')
                 }, 600);
                 $('#people-online').text(message.num);
                 last_message = message.msg;

@@ -209,7 +209,6 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
             self.remove_name(self.client.name)
             self.client.name = name
         self.USERS.add(name)
-        print(self.USERS)
         return name.encode()
 
     @event_map.register_event('exit')

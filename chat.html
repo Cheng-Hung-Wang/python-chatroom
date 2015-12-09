@@ -86,56 +86,12 @@
         float: right;
     }
     
-    .message-text:last-child:before,
-    .message-text:last-child:after {
-        content: '';
-        position: absolute;
-        bottom: 0;
-        width: 35px;
-        height: 25px;
-        z-index: -1;
-    }
-    
-    .message.right .message-text:before,
-    .message.right .message-text:after {
-        border-radius: 0 0 0 50%;
-    }
-    
-    .message.right .message-text:before {
-        height: 20px;
-        right: -23px;
-        background-color: #36a9fc;
-    }
-    
-    .message.right .message-text:after {
-        right: -35px;
-        bottom: -3px;
-        background-color: #fff;
-    }
-    
-    .message.left .message-text:before,
-    .message.left .message-text:after {
-        border-radius: 0 0 50% 0;
-    }
-    
-    .message.left .message-text:before {
-        height: 20px;
-        left: -23px;
-        background-color: #e5e5ea;
-    }
-    
-    .message.left .message-text:after {
-        left: -35px;
-        bottom: -3px;
-        background-color: #fff;
-    }
-    
     .send-container {
-        height: 10%;
+        height: 12%;
         background-color: #f6f6f6;
         border: 1px solid #dcdcdc;
         margin-top: -1px;
-        padding: 10px;
+        padding: 5px;
     }
     
     .send-input {
@@ -145,7 +101,6 @@
         padding: 5px 5px;
         font-size: 1em;
         margin: 2px 0px;
-        width: 78%;
     }
     
     .send-btn {
@@ -166,6 +121,15 @@
     .sender-right {
         text-align: right;
     }
+
+    #name {
+      width: 70%;
+    }
+
+    #msgInput {
+      width: 75%;
+    }
+
     </style>
 </head>
 
@@ -198,7 +162,6 @@
             method: 'POST',
             data: input_name,
             success: function(name) {
-                alert(name);
                 // 修改成功
                 user = name;
                 $("#name").val(name);
@@ -212,7 +175,6 @@
 
     $(window).load(function(){
         getName();
-        // prompt('输入呢称：');
     });
 
     $('#name').on('blur', function() {
@@ -231,7 +193,7 @@
                   $("#msgInput").val("");
               },
               error: function() {
-                  alert('发送失败');
+                  alert('网络不好');
               }
           });
         }

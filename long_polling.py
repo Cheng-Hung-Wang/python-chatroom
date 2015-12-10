@@ -6,6 +6,7 @@ from http.cookies import SimpleCookie as cookie
 from socketserver import ThreadingMixIn
 from queue import Queue
 
+import datetime
 import time
 import threading
 import json
@@ -15,6 +16,7 @@ import uuid
 message = None
 
 class MessageQueue(Queue):
+    # for 多进程
     pass
 
 
@@ -50,6 +52,8 @@ class Client(object):
     def __init__(self, cid, name=None):
         self.id = cid
         self.name = name or anonymous()
+        self.login_time = time.time()
+        self.post_time = 0
         # self.queue = MessageQueue()
 
     def __eq__(self, other):
@@ -114,6 +118,7 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
             if forcenew or time.time() - int(self.sessioncookies[c['session_id'].value]) > self.SESSION_MAX_AGE:  
                 raise ValueError('new cookie needed')  
         except:
+            # 用uuid随机生成session id
             c['session_id'] = uuid.uuid4().hex
 
         for m in c:  
@@ -125,9 +130,6 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
                 self.sessionidmorsel = c[m]
                 break
         return c['session_id'].value
-
-    def handle(self):
-        super().handle()
 
     # 在线人数
     @classmethod
@@ -143,9 +145,6 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
         def _get(self, *args, **kwargs):
             self.session_id = self._session_cookie()
             self.client = self.find_client(self.session_id)
-            # print("self.session_id:{}".format(self.session_id))
-            # print("self.client:", self.client)
-            # print("self.CONNECTION_LIST:", self.CONNECTION_LIST)
 
             if not self.client:
                 client = Client(self.session_id)
@@ -174,8 +173,22 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
         else:
             self._write_headers(404)
 
+    def clear(self, client):
+        self.sessioncookies.pop(client.id)
+        self.remove_name(client.name)
+        self.CONNECTION_LIST.remove(client)
+
+    def kick_timeout(self):
+        now = time.time()
+        new_list = []
+        for client in self.CONNECTION_LIST:
+            # 登录后10分钟不发言，从列表删除
+            if now - client.login_time > 600 and now - client.post_time > 600:
+                self.clear(client)
+
     @get_client
     def do_GET(self):
+        self.kick_timeout()
         res = self.get_html(self.path)
         if res:
             headers = {}
@@ -190,11 +203,13 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
     @event_map.register_event('post')
     def post(self):
         from html import escape
-        name = self.client.name if self.client else '匿名' # 当服务器重启后，client信息会清空
-        return message.post({
-            'msg': escape(self.body), 
-            'user': name
-        })
+        if self.client:
+            self.client.post_time = time.time()
+            name = self.client.name # 当服务器重启后，client信息会清空
+            return message.post({
+                'msg': escape(self.body), 
+                'user': name
+            })
 
     @event_map.register_event('poll')
     def poll(self):
@@ -217,9 +232,8 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
     def exit(self):
         if self.client:
             # 清除用户信息
-            self.sessioncookies.pop(self.client.id)
-            self.remove_name(self.client.name)
-            self.CONNECTION_LIST.remove(self.client)
+            self.clear(self.client)
+        return b''
 
     def perform_operation(self, oper, body):
         session_id = self.get_session_id()
@@ -248,6 +262,7 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
 
 
 class Message(object):
+    # 单进程版本的消息对象，用线程锁和事件控制消息轮询
     def __init__(self):
         self.data = ''
         self.time = 0
@@ -283,22 +298,9 @@ class Message(object):
             self.event.clear()
         return b'ok'
 
-class StoppableHTTPServer(HTTPServer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.stop = False
-
-    def serve_forever(self):
-        while not self.stop:
-            try:
-                self.handle_request()
-            except KeyboardInterrupt:
-                break
-
-
-ThreadingMixIn.daemon_threads = True
-class ChatHTTPServer(ThreadingMixIn, StoppableHTTPServer):
-    pass
+class ChatHTTPServer(ThreadingMixIn, HTTPServer):
+    # socket超时时间
+    timeout = 300
 
 
 def start_server(handler, host, port):
@@ -306,7 +308,10 @@ def start_server(handler, host, port):
     message = Message()
 
     httpd = ChatHTTPServer((host, port), handler)
-    httpd.serve_forever()
+    try:
+        httpd.serve_forever()
+    except:
+        httpd.shutdown()
 
 
 if __name__ == '__main__':

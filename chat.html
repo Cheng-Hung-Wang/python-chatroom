@@ -147,9 +147,7 @@
         </div>
     </div>
     <script src="http://cdn.bootcss.com/jquery/2.1.4/jquery.min.js"></script>
-    <br>
     <script>
-    var last_message = '';
     var user = '';
 
     function getName() {
@@ -157,8 +155,9 @@
         if(input_name != '' && input_name == user) {
           return null;
         }
+
         $.ajax({
-            url: '/name',
+            url: 'name',
             method: 'POST',
             data: input_name,
             success: function(name) {
@@ -192,7 +191,7 @@
         var msg = $('#msgInput').val();
         if(msg != "") {
           $.ajax({
-              url: '/post',
+              url: 'post',
               method: 'POST',
               timeout: 1000,
               data: msg,
@@ -206,19 +205,25 @@
         }
     });
 
-    $(window).bind("beforeunload", function() {
-        $.ajax('/exit', {
+    $(window).bind("beforeunload", function(event) {
+        $.ajax({
+            url: 'exit',
             method: 'POST',
+            success: function() {
+
+            },
+            error: function() {
+
+            }
         });
     });
 
     (function poll() {
-        $.ajax('/poll', {
+        $.ajax('poll', {
             method: 'POST',
             timeout: 1000 * 60 * 10, //设置10分钟超时
             success: function(data) {
                 var message = JSON.parse(data);
-                // var time = new Date(message.time);
                 var pos = message.user == user ? 'right' : 'left';
 
                 $("#phone").append(
@@ -232,13 +237,11 @@
                     scrollTop: $('#phone').prop('scrollHeight')
                 }, 600);
                 $('#people-online').text(message.num);
-                last_message = message.msg;
                 poll();
             },
             error: function() {
                 setTimeout(poll, 1000);
             },
-            data: last_message
         });
     }());
     </script>

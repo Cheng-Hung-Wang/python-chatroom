@@ -180,7 +180,6 @@ class ChatRequestHandler(BaseHTTPRequestHandler):
 
     def kick_timeout(self):
         now = time.time()
-        new_list = []
         for client in self.CONNECTION_LIST:
             # 登录后10分钟不发言，从列表删除
             if now - client.login_time > 600 and now - client.post_time > 600:

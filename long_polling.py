@@ -297,6 +297,7 @@ class Message(object):
             self.event.clear()
         return b'ok'
 
+ThreadingMixIn.daemon_threads = True
 class ChatHTTPServer(ThreadingMixIn, HTTPServer):
     # socket超时时间
     timeout = 300
@@ -306,11 +307,11 @@ def start_server(handler, host, port):
     global message
     message = Message()
 
-    httpd = ChatHTTPServer((host, port), handler)
     try:
-        httpd.serve_forever()
-    except:
-        httpd.shutdown()
+        server = ChatHTTPServer((host, port), handler)
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.serve_close()
 
 
 if __name__ == '__main__':

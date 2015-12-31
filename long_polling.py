@@ -297,8 +297,22 @@ class Message(object):
             self.event.clear()
         return b'ok'
 
-ThreadingMixIn.daemon_threads = True
-class ChatHTTPServer(ThreadingMixIn, HTTPServer):
+class ChatThreadingMixIn(ThreadingMixIn):
+ 
+    daemon_threads = True
+    pool = []
+    MAX_NUMS = 128
+
+    # 重写方法
+    def process_request(self, request, client_address):
+        if len(pool) < self.MAX_NUMS:
+            t = threading.Thread(target = self.process_request_thread,
+                                 args = (request, client_address))
+            pool.append(t)
+            t.daemon = self.daemon_threads
+            t.start()
+
+class ChatHTTPServer(ChatThreadingMixIn, HTTPServer):
     # socket超时时间
     timeout = 300
 
